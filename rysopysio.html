@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Super Paint PRO 🐶</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #f0f0f0;
+      margin: 0;
+    }
+
+    canvas {
+      border: 2px solid #333;
+      margin-top: 20px;
+      background-color: white;
+      cursor: crosshair;
+    }
+
+    .tools {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .tools input, .tools select, .tools button {
+      padding: 5px;
+    }
+
+    .emoji-grid {
+      display: none;
+      flex-wrap: wrap;
+      max-width: 400px;
+      gap: 5px;
+      margin-top: 10px;
+    }
+
+    .emoji-grid button {
+      font-size: 24px;
+      padding: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎨 Super Paint PRO 🐶</h1>
+
+  <div class="tools">
+    <input type="color" id="colorPicker" value="#000000">
+    <input type="range" id="brushSize" min="1" max="30" value="5">
+
+    <select id="tool">
+      <option value="brush">Pędzel</option>
+      <option value="eraser">Gumka</option>
+      <option value="line">Linia</option>
+      <option value="rect">Prostokąt</option>
+      <option value="circle">Koło</option>
+      <option value="triangle">Trójkąt</option>
+      <option value="sticker">Naklejka</option>
+    </select>
+
+    <input type="color" id="bgColorPicker" title="Kolor tła">
+    <input type="file" id="bgImagePicker" accept="image/*" title="Wczytaj tło">
+
+    <button onclick="undo()">↩️ Cofnij</button>
+    <button onclick="clearCanvas()">🧹 Wyczyść</button>
+    <button onclick="saveImage()">💾 Zapisz</button>
+  </div>
+
+  <div id="stickerPanel" class="emoji-grid">
+    <button>😀</button><button>😎</button><button>🎉</button><button>❤️</button>
+    <button>🔥</button><button>🥳</button><button>👽</button><button>🍕</button>
+    <button>🐶</button><button>🌟</button><button>🐱</button><button>🦄</button>
+    <button>🚀</button><button>💀</button><button>✨</button><button>👾</button>
+  </div>
+
+  <canvas id="paintCanvas" width="900" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById("paintCanvas");
+    const ctx = canvas.getContext("2d");
+    const colorPicker = document.getElementById("colorPicker");
+    const brushSize = document.getElementById("brushSize");
+    const toolSelect = document.getElementById("tool");
+    const bgColorPicker = document.getElementById("bgColorPicker");
+    const bgImagePicker = document.getElementById("bgImagePicker");
+    const stickerPanel = document.getElementById("stickerPanel");
+
+    let painting = false;
+    let startX = 0;
+    let startY = 0;
+    let currentSticker = "😀";
+    let backgroundColor = "#ffffff";
+
+    let history = [];
+
+    function saveState() {
+      history.push(canvas.toDataURL());
+      if (history.length > 50) history.shift(); // limit historii
+    }
+
+    function undo() {
+      if (history.length > 0) {
+        const lastState = history.pop();
+        const img = new Image();
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = lastState;
+      }
+    }
+
+    function redrawBackground(color = null, image = null) {
+      if (color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        backgroundColor = color;
+      }
+
+      if (image) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = image;
+      }
+    }
+
+    toolSelect.addEventListener("change", () => {
+      stickerPanel.style.display = toolSelect.value === "sticker" ? "flex" : "none";
+    });
+
+    bgColorPicker.addEventListener("change", () => {
+      redrawBackground(bgColorPicker.value);
+      saveState();
+    });
+
+    bgImagePicker.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        redrawBackground(null, event.target.result);
+        saveState();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    stickerPanel.querySelectorAll("button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        currentSticker = btn.textContent;
+      });
+    });
+
+    canvas.addEventListener("mousedown", (e) => {
+      startX = e.offsetX;
+      startY = e.offsetY;
+
+      if (toolSelect.value === "brush" || toolSelect.value === "eraser") {
+        painting = true;
+        draw(e);
+        saveState();
+      }
+    });
+
+    canvas.addEventListener("mouseup", (e) => {
+      if (painting) {
+        painting = false;
+        ctx.beginPath();
+      }
+
+      const endX = e.offsetX;
+      const endY = e.offsetY;
+
+      if (toolSelect.value === "sticker") {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.font = "32px serif";
+        ctx.fillText(currentSticker, endX, endY);
+        saveState();
+      } else if (["line", "rect", "circle", "triangle"].includes(toolSelect.value)) {
+        drawShape(toolSelect.value, startX, startY, endX, endY);
+        saveState();
+      }
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      if (!painting) return;
+      if (toolSelect.value === "brush" || toolSelect.value === "eraser") {
+        draw(e);
+      }
+    });
+
+    function draw(e) {
+      ctx.lineWidth = brushSize.value;
+      ctx.lineCap = "round";
+
+      if (toolSelect.value === "eraser") {
+        ctx.globalCompositeOperation = "destination-out";
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.strokeStyle = colorPicker.value;
+      }
+
+      ctx.lineTo(e.offsetX, e.offsetY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(e.offsetX, e.offsetY);
+    }
+
+    function drawShape(type, x1, y1, x2, y2) {
+      ctx.strokeStyle = colorPicker.value;
+      ctx.lineWidth = brushSize.value;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.beginPath();
+
+      if (type === "line") {
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+      } else if (type === "rect") {
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      } else if (type === "circle") {
+        const radius = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        ctx.arc(x1, y1, radius, 0, Math.PI * 2);
+      } else if (type === "triangle") {
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x1 * 2 - x2, y2);
+        ctx.closePath();
+      }
+
+      ctx.stroke();
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      redrawBackground(backgroundColor);
+      saveState();
+    }
+
+    function saveImage() {
+      const link = document.createElement("a");
+      link.download = "moj_rysunek.png";
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    }
+
+    redrawBackground("#ffffff");
+    saveState();
+  </script>
+</body>
+</html>
